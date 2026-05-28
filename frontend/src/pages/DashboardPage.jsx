@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import { plantsApi } from '../services/api.js'
 import toast from 'react-hot-toast'
 import Navbar from '../components/ui/Navbar.jsx'
@@ -8,50 +8,56 @@ import SensorCard from '../components/dashboard/SensorCard.jsx'
 import SensorChart from '../components/dashboard/SensorChart.jsx'
 import TuViBadge from '../components/plant/TuViBadge.jsx'
 
+// Backend dùng sensor_key "light"; biểu đồ/Card dùng "light_level" → map qua lại.
+const SENSOR_KEYS = ['soil_moisture', 'temperature', 'light', 'humidity']
+
 export default function DashboardPage() {
   const navigate = useNavigate()
 
-  const [plant, setPlant] = useState(null)
-  const [latestSensor, setLatestSensor] = useState(null)
+  const [dashboard, setDashboard] = useState(null)
   const [sensorLogs, setSensorLogs] = useState([])
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
 
-  const { plantId } = useParams()
+  // Gộp lịch sử 4 cảm biến thành các hàng theo timestamp để vẽ chart
+  const buildLogs = (histories) => {
+    const byTime = new Map()
+    const fieldOf = { soil_moisture: 'soil_moisture', temperature: 'temperature', light: 'light_level', humidity: 'humidity' }
+    SENSOR_KEYS.forEach((key, idx) => {
+      const res = histories[idx]
+      if (res.status !== 'fulfilled') return
+      const readings = res.value.data?.readings || []
+      readings.forEach((r) => {
+        const t = r.created_at
+        const row = byTime.get(t) || { recorded_at: t }
+        row[fieldOf[key]] = r.value
+        byTime.set(t, row)
+      })
+    })
+    return [...byTime.values()].sort(
+      (a, b) => new Date(a.recorded_at) - new Date(b.recorded_at)
+    )
+  }
 
   const fetchData = async (silent = false) => {
     if (!silent) setLoading(true)
     else setRefreshing(true)
 
     try {
-      // 1. Lấy danh sách cây
-      const { data: plants } = await plantsApi.getMyPlants()
-      const list = plants?.plants || plants || []
+      const { data } = await plantsApi.getDashboard()
+      setDashboard(data)
 
-      if (list.length === 0) {
+      const histories = await Promise.allSettled(
+        SENSOR_KEYS.map((key) => plantsApi.getHistory(key, 24))
+      )
+      setSensorLogs(buildLogs(histories).slice(-40))
+    } catch (err) {
+      const status = err.response?.status
+      // 404 = chưa liên kết cây → chuyển sang trang claim
+      if (status === 404) {
         navigate('/claim', { replace: true })
         return
       }
-
-      // 2. Tìm đúng cây dựa trên plantId trên URL. Nếu URL không có plantId, lấy cây đầu tiên.
-      let myPlant = list.find(p => (p.id || p.plant_code) === plantId)
-      if (!myPlant) myPlant = list[0] 
-
-      setPlant(myPlant)
-      const currentId = myPlant.id || myPlant.plant_code
-
-      // 3. Lấy thông số Sensor theo đúng ID của cây đó
-      const [sensorRes, logsRes] = await Promise.allSettled([
-        plantsApi.getLatestSensor(currentId),
-        plantsApi.getSensorLogs(currentId),
-      ])
-
-      if (sensorRes.status === 'fulfilled') setLatestSensor(sensorRes.value.data)
-      if (logsRes.status === 'fulfilled') {
-        const logs = logsRes.value.data?.logs || logsRes.value.data || []
-        setSensorLogs(Array.isArray(logs) ? logs.slice(-20) : [])
-      }
-    } catch (err) {
       if (!silent) toast.error('Không thể tải dữ liệu')
     } finally {
       setLoading(false)
@@ -73,6 +79,15 @@ export default function DashboardPage() {
       </div>
     </div>
   )
+
+  // Map sensors[] → tra cứu nhanh theo sensor_key
+  const sensorMap = {}
+  ;(dashboard?.sensors || []).forEach((s) => { sensorMap[s.sensor_key] = s })
+  const lastUpdated = (dashboard?.sensors || [])
+    .map((s) => s.updated_at)
+    .filter(Boolean)
+    .sort()
+    .at(-1)
 
   return (
     <div style={{ minHeight: '100vh', background: 'var(--bg-base)' }}>
@@ -104,11 +119,11 @@ export default function DashboardPage() {
               fontSize: 30,
               flexShrink: 0,
             }}>
-              {speciesEmoji(plant?.species)}
+              🪴
             </div>
             <div>
               <h1 style={{ fontSize: 26, marginBottom: 4, color: 'var(--text-primary)' }}>
-                {plant?.plant_name || 'Chậu cây của tôi'}
+                {dashboard?.plant_name || 'Chậu cây của tôi'}
               </h1>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                 <span style={{
@@ -120,25 +135,35 @@ export default function DashboardPage() {
                   fontSize: 12.5,
                   fontWeight: 500,
                 }}>
-                  {speciesLabel(plant?.species)}
+                  {dashboard?.plant_type?.name || 'Không rõ loài'}
                 </span>
                 <span style={{
-                  fontFamily: 'monospace',
                   fontSize: 12,
                   color: 'var(--text-muted)',
                   background: 'var(--bg-soft)',
                   padding: '2px 8px',
                   borderRadius: 6,
-                  letterSpacing: 1.5,
                 }}>
-                  {plant?.plant_code}
+                  Cảnh giới: {dashboard?.current_rank?.name || '—'}
+                </span>
+                <span style={{
+                  fontSize: 11.5,
+                  color: dashboard?.device_online ? 'var(--green-600)' : 'var(--text-muted)',
+                  display: 'flex', alignItems: 'center', gap: 5,
+                }}>
+                  <span style={{
+                    width: 7, height: 7, borderRadius: '50%',
+                    background: dashboard?.device_online ? 'var(--green-500)' : '#c0392b',
+                    display: 'inline-block',
+                  }} />
+                  {dashboard?.device_online ? 'Online' : 'Offline'}
                 </span>
               </div>
             </div>
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <TuViBadge value={plant?.tu_vi || 0} />
+            <TuViBadge value={dashboard?.total_exp || 0} />
             <button
               onClick={() => fetchData(true)}
               title="Làm mới dữ liệu"
@@ -172,52 +197,34 @@ export default function DashboardPage() {
           marginBottom: 24,
         }}>
           <SensorCard
-            label="Độ ẩm đất"
-            value={latestSensor?.soil_moisture ?? null}
-            unit="%"
-            icon="💧"
-            min={0} max={100}
-            warnBelow={20}
-            warnAbove={80}
+            label="Độ ẩm đất" value={sensorMap.soil_moisture?.value ?? null}
+            unit="%" icon="💧" min={0} max={100} warnBelow={20} warnAbove={80}
           />
           <SensorCard
-            label="Nhiệt độ"
-            value={latestSensor?.temperature ?? null}
-            unit="°C"
-            icon="🌡️"
-            min={10} max={45}
-            warnBelow={15}
-            warnAbove={38}
+            label="Nhiệt độ" value={sensorMap.temperature?.value ?? null}
+            unit="°C" icon="🌡️" min={10} max={45} warnBelow={15} warnAbove={38}
           />
           <SensorCard
-            label="Ánh sáng"
-            value={latestSensor?.light_level ?? null}
-            unit="lux"
-            icon="☀️"
-            min={0} max={10000}
+            label="Ánh sáng" value={sensorMap.light?.value ?? null}
+            unit="lux" icon="☀️" min={0} max={10000}
           />
           <SensorCard
-            label="Độ ẩm KK"
-            value={latestSensor?.humidity ?? null}
-            unit="%"
-            icon="🌫️"
-            min={0} max={100}
+            label="Độ ẩm KK" value={sensorMap.humidity?.value ?? null}
+            unit="%" icon="🌫️" min={0} max={100}
           />
         </div>
 
         {/* Last updated */}
-        {latestSensor?.recorded_at && (
+        {lastUpdated && (
           <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 20, textAlign: 'right' }}>
-            Cập nhật lần cuối: {new Date(latestSensor.recorded_at).toLocaleString('vi-VN')}
+            Cập nhật lần cuối: {new Date(lastUpdated).toLocaleString('vi-VN')}
           </p>
         )}
 
         {/* Sensor chart */}
-        {sensorLogs.length > 0 && (
-          <SensorChart logs={sensorLogs} />
-        )}
+        {sensorLogs.length > 0 && <SensorChart logs={sensorLogs} />}
 
-        {!latestSensor && !loading && (
+        {(dashboard?.sensors || []).length === 0 && (
           <div style={{
             textAlign: 'center',
             padding: '48px 24px',
@@ -245,26 +252,14 @@ export default function DashboardPage() {
           flexWrap: 'wrap', gap: 8,
           fontSize: 12.5, color: 'var(--text-muted)',
         }}>
-          <span>Device: <code style={{ fontSize: 11 }}>{plant?.device_id || '—'}</code></span>
-          <span>Đã claim: {plant?.created_at ? new Date(plant.created_at).toLocaleDateString('vi-VN') : '—'}</span>
+          <span>Tu Vi (EXP): <code style={{ fontSize: 11 }}>{(dashboard?.total_exp ?? 0).toLocaleString('vi-VN')}</code></span>
+          <span>
+            Thiết bị: {dashboard?.device_last_seen
+              ? new Date(dashboard.device_last_seen).toLocaleString('vi-VN')
+              : 'chưa kết nối'}
+          </span>
         </div>
       </div>
     </div>
   )
-}
-
-function speciesEmoji(species) {
-  const map = {
-    kim_tien: '🌿', luoi_ho: '🌵', sen_da: '🪴',
-    trau_ba: '🍃', xuong_rong: '🌱', khac: '🌾',
-  }
-  return map[species] || '🪴'
-}
-
-function speciesLabel(species) {
-  const map = {
-    kim_tien: 'Kim Tiền', luoi_ho: 'Lưỡi Hổ', sen_da: 'Sen Đá',
-    trau_ba: 'Trầu Bà', xuong_rong: 'Xương Rồng', khac: 'Khác',
-  }
-  return map[species] || species || 'Không rõ loài'
 }

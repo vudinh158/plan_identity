@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
-import { authApi } from '../services/api.js'
+import { authApi, tokenStore } from '../services/api.js'
 
 export const useAuthStore = create(
   persist(
@@ -10,10 +10,10 @@ export const useAuthStore = create(
       isLoading: false,
       isAuthenticated: false,
 
-      setToken: (token) => {
-        if (token) localStorage.setItem('access_token', token)
-        else localStorage.removeItem('access_token')
-        set({ accessToken: token })
+      // Lưu cặp token (access + refresh) sau khi đăng nhập / refresh
+      setTokens: (access, refresh) => {
+        tokenStore.set(access, refresh)
+        set({ accessToken: access })
       },
 
       fetchMe: async () => {
@@ -21,16 +21,18 @@ export const useAuthStore = create(
         try {
           const { data } = await authApi.getMe()
           set({ user: data, isAuthenticated: true })
+          return data
         } catch {
           set({ user: null, isAuthenticated: false })
+          return null
         } finally {
           set({ isLoading: false })
         }
       },
 
+      // Backend không có endpoint logout → chỉ xóa token phía client
       logout: async () => {
-        try { await authApi.logout() } catch (_) {}
-        localStorage.removeItem('access_token')
+        tokenStore.clear()
         set({ user: null, accessToken: null, isAuthenticated: false })
       },
     }),
