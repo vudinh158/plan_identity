@@ -21,7 +21,7 @@ export default function ClaimPage() {
 
   useEffect(() => {
     inputRefs.current[0]?.focus()
-    // Nạp danh sách loại cây cho dropdown
+    // Nạp danh sách loại cây cho dropdownnn
     plantsApi
       .getPlantTypes()
       .then(({ data }) => setPlantTypes(Array.isArray(data) ? data : []))
