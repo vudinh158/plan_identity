@@ -19,7 +19,7 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
 
-  // Gộp lịch sử 4 cảm biến thành các hàng theo timestamp để vẽ chart
+  // Gộp lịch sử 4 cảm biến thành các hàng follow timestamp để vẽ chart
   const buildLogs = (histories) => {
     const byTime = new Map()
     const fieldOf = { soil_moisture: 'soil_moisture', temperature: 'temperature', light: 'light_level', humidity: 'humidity' }
