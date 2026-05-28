@@ -8,7 +8,7 @@ import SensorCard from '../components/dashboard/SensorCard.jsx'
 import SensorChart from '../components/dashboard/SensorChart.jsx'
 import TuViBadge from '../components/plant/TuViBadge.jsx'
 
-// Backend dùng sensor_key "light"; biểu đồ/Card dùng "light_level" → map qua lại.
+// Backend dùng sensor_key "light"; biểu đồ/Card dùng "light_level" → map qua lại
 const SENSOR_KEYS = ['soil_moisture', 'temperature', 'light', 'humidity']
 
 export default function DashboardPage() {
