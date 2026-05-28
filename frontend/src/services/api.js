@@ -1,6 +1,6 @@
 import axios from 'axios'
 
-// Prefix /api được Vite proxy forward sang backend FastAPI (giữ nguyên /api).
+// Prefix /api được Vite proxy forward sang backend FastAPI (giữ nguyên /api)ffff
 const BASE_URL = import.meta.env.VITE_API_URL || '/api'
 
 const ACCESS_KEY = 'access_token'
